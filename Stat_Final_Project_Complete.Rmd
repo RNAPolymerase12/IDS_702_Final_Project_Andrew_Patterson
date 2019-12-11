@@ -1,0 +1,266 @@
+---
+title: "Stat_Final_Project_Complete"
+output:
+  word_document: default
+  html_document: default
+---
+
+Andrew Patterson
+IDS 702 Final Project
+December 10, 2019
+
+```{r, echo = FALSE, message= FALSE}
+library('plyr')
+library('car')
+library('kableExtra')
+library('glmnet')
+library('xtable')
+library('caret')
+library('e1071')
+library('pROC')
+library('arm')
+library('lme4')
+
+
+
+```
+
+```{r, echo= FALSE}
+All_Seasons <- read.csv('Final_Frame_Stat.csv')
+Before_2015 <- read.csv('Up_To_2016_Frame.csv')
+After_2015 <- read.csv('After_2016_Frame.csv')
+
+After_2015$State <- After_2015$REGION
+
+fullmodel_after_Percents <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + BVic_Percent + H3N2v_Percent + (1 | State), data = After_2015)
+```
+
+
+**Summary**
+
+  This project seeks to examine the effects of the prevalence of six influenza viruses on the percentage of people who come to a healthcare center presenting with an Influenza Like Illness (ILI). These effects were also examined by state using a hierarchical model. From these results, over the period from the 2015-2016 season to the last full season of 2018-2019, Influenza A 2009 H1N1, Influenza B Yamagata, Influenza B, and Influenza A H3 were the best predictors of an increased percentage of people presenting with an ILI at a healthcare center. The states with the highest baseline incidence of ILI tended to be southeastern states- more studies as to why this is the case may be helpful in preventing and treating influenza outbreaks.
+
+**Introduction**
+
+	Influenza is an RNA virus whose original hosts were wild fowl, such as ducks. However, as an RNA virus, influenza, particularly influenza A, mutates very rapidly. This has allowed the virus to evolve and move into numerous other species, including humans. 
+	There are two types of influenza viruses that are most relevant to human health- influenza A and influenza B. Influenza A is categorized by its Hemagglutinin and Neuraminidase proteins- these viral proteins bind to specific targets on a cell which then allows the virus to enter into the cell and begin viral replication. The exact targets these proteins bind to vary by the subtype of the virus, and different species tend to have different targets, so for example an influenza virus which infects birds may not necessarily be able to spread easily among humans. However, sometimes new mutations or new combinations of Hemagglutinin and Neuraminidase form and can cause a global pandemic, as seen in 2009 with influenza A H1N1. Influenza A is named by the types of Hemagglutinin and Neuraminidase the virus contains. H1N1 contains type 1 Hemagglutinin and type 1 Neuraminidase, while H3N2 contains different variants of the proteins. In this project, there were three influenza A viruses examined- the 2009 pandemic H1N1 strain, a general H3 strain, and the more specific H3N2v strain. Both the 2009 pandemic H1N1 and the H3N2v strain were contained in the vaccine given during this study period.
+	Influenza B mutates much more slowly than influenza A, and is almost exclusively found in humans. Unlike influenza A, influenza B is categorized by particular strains. The three strains examined in this project are a generic influenza B, influenza B Yamagata strain, and influenza B Victoria strain. Previous different strains of influenza B were included in the influenza vaccines during this time period, but in the 2018-2019 season, both Yamagata and Victoria were added into the vaccine.
+	This project seeks to determine how the different influenza increases the percentage of people presenting at a healthcare clinic with an Influenza Like Illness (ILI). Specifically, this project looks at the different strains picked up by public health laboratories and seeks to use them to predict the percentage of people who present at a healthcare clinic with an ILI as compared to everyone who presents at a clinic for any other reason.
+	
+**Data**
+
+  Data was obtained from the CDC’s FlueView Database, which contains records per state on ILI’s, total patients, and virus samples. Data was obtained for 49 states from the 2010-11 season up to the 2018-19 season, which is the last season with complete data. Florida was excluded from the analysis as the database did not have any data for Florida. 
+	In the 2015-2016 season, the data collection was split into public health and clinical labs. Additionally, new viruses were also collected after this time point.
+	Data cleaning was carried out in Python using the Pandas library. Pre-2015 data was joined to the post-2015 data on State and Season. The clinical labs were excluded as they did not provide granularity in virus surveillance, as they only looked at a few broad virus types.
+	For the analysis, the post-2015 public health lab data was used, as they provided the most virus surveillance data out of all of the data. Preliminary models were also constructed based on the entire subset of data from 2010 to 2019 to confirm results- however, this used only virus types present both before and after 2015, and so did not have the depth of interpretation afforded by the post-2015 data. Therefore, this model is not shown.
+	In order to compare between states with different populations, the response variable was constructed by dividing the number of ILI patients by the total number of patients seen at healthcare centers, giving the percentage of patients who presented with an ILI. Similarly, the covariates were constructed by dividing the number of virus samples of that virus type by the number of total virus samples processed.
+	No missing values were present in the post 2015-16 data from the CDC.
+	
+EDA:
+	The ILI percentage covariate was graphed and determined to generally follow a normal distribution. Transformations were also carried out on the data, but the ILI percentage covariate was considered sufficiently normal that no transformation was necessary. This was confirmed in the QQ plots of the data showing normality was not violated.
+```{r, echo= FALSE}
+hist(After_2015$ILI_Percent, main = 'Histogram of Percentage of Patients with an ILI', xlab = 'Percentage of Patients with an ILI')
+```
+Each of the virus types were plotted against the response variable. Several of the viruses may have upward trends. Below is a representative graph showing B Yamagata strain. There may be a positive trend; results from the model should show if this is signficant.
+
+```{r, echo= FALSE}
+plot(ILI_Percent~BYam_Percent, data = After_2015, main = 'ILI Percentage vs B Yamagata Percentage')
+
+```
+
+**Model**
+
+	As described above, the interpretable models were constructed using the data from public health labs from the 2015-16 season onward. This data has six initial covariates, corresponding to six different viral types tested at these public health labs: Influenza A 2009 H1N1, Influenza A H3N2v, Influenza A H3, Influenza B Yamagata, Influenza B Victoria, and Influenza B. Influenza B is not the sum of the other Influenza B strains, and may represent other, rarer B types which do not fall under the two previous common strains, or may also represent labs which do not have the resources to measure particular Influenza B strains.
+
+A full model was constructed using all six of the covariates as fixed effects and the 49 states as random intercepts. From this model, four viruses were considered significant: Influenza A 2009 H1N1, B Yamagata, Influenza B, and Influenza A H3.
+
+Another model was constructed using only Influenza A, and another was constructed using only Influenza B. A fourth model was constructed using only the covariates which were considered significant in the full model. Finally, a fifth model was prepared using interaction terms between Influenza B Yamagata and Influenza B, and between Influenza A H3 and H3N2v. 
+
+These five models were then compared to each other to determine the final model for analysis.
+
+**Model Selection**
+
+  The AIC for the full model was -1288.47, and the BIC was -1258.97. In comparison, the Influenza A model had an AIC of -1300.70 and a BIC of -1281.03, the Influenza B model had an AIC and BIC of -1289.91 and -1270.24, the model without B Victoria or H3N2v had an AIC and BIC of -1295.60 and -1272.66, and the interaction model had an AIC and BIC of -1295.47 and -1259.41. Since the absolute AIC and BIC value of the full model are lower than all of the other models, therefore, the full model is the preferred model. 
+
+Anova tests comparing all five models also indicate that there is a significant difference in the full model as compared to all other models except the model without B Victoria or H3N2v. However, since the AIC and BIC of the full model were lower than the other models, the full model was chosen to be the final model for this project.
+
+The response variables in the final model are not collinear. Predictions were generated off of this model, and no prediction was negative, indicating this model can be used for this project. Residual plots also indicate this model does not violate linearity, equal variance, normality, or heteroskedasticity.
+
+The final model:
+
+$$\begin{aligned}
+ILI\_Percent = & (B_0 + \gamma_{State} ) + B_1A\_2009\_H1N1 + B_2A\_H3\_Percent + \\B_3BYam\_Percent + B_4BVic\_Percent + B_5B_Percent + B_6H3N2v_Percent
+\end{aligned}$$
+
+**Results**
+
+These are the results of the final model used for the analysis:
+
+
+```{r, echo= FALSE}
+dotplot(ranef(fullmodel_after_Percents),col.lab = 'red', cex.lab = 0.1)
+
+```
+
+From these results, Influenza A 2009 H1N1 strain has an increasing or positive effect on clinical ILI presentations. As more Influenza A 2009 H1N1 strains are picked up in these public health lab tests, then therefore there should be an expected increase in the percentage of people presenting with an ILI. The expected increase is 0.0181 when all viruses are H1N1, with confidence intervals of 0.00930 lower bound and 0.0269 upper bound.
+
+Influenza B Yamagata strain has an increasing or positive effect on clinical ILI presentations. As more Influenza B Yamagata strains are picked up in these public health lab tests, then therefore there should be an expected increase in the percentage of people presenting with an ILI. The expected increase is  0.0238 when all viruses are Influenza B Yamagata, with confidence intervals of 0.00883 lower bound and 0.0388 upper bound.
+
+Influenza B has an increasing or positive effect on clinical ILI presentations. As more Influenza B is picked up in these public health lab tests, then therefore there should be an expected increase in the percentage of people presenting with an ILI. The expected increase is 0.0285 When all viruses are Influenza B, with confidence intervals of 0.00430 lower bound and 0.0388 upper bound.
+
+Influenza A H3 strain has an increasing or positive effect on clinical ILI presentations. As more Influenza A H3 is picked up in these public health lab tests, then therefore there should be an expected increase in the percentage of people presenting with an ILI. The expected increase is 0.0134 when all viruses are Influenza A H3, with confidence intervals of 0.00744 lower bound and 0.0193 upper bound.
+
+Influenza B Victoria strain and Influenza H3N2v were not considered significant according to this model.  
+
+For the fixed effects, southeastern states have a higher tendency to have patients present with an ILI, while the sparsely populated midwestern states tended to have much lower base incidences of ILI.
+
+**Conclusions and Future Directions**
+
+	From these results, as Influenza B Yamagata, Influenza A 2009 H1N1, Influenza A H3, and Influenza B increase, there is an expected subsequent increase in the number of people presenting with an ILI at healthcare centers. Using these results and new data on the prevalance of these viruses, healthcare centers can plan for the ongoing strength of the flu season and better prepare for the number of expected ILI cases. 
+	For future research, possible explanations for these trends  could be that more people are susceptible to these strains. In particular, the H1N1 strain is known to be highly virulent and was responsible for the most recent global flu pandemic. Alternatively, these strains could cause a more devastating illness, causing more people to seek medical attention for their ILI. In the 2018-19 season, the CDC introduced both B Yamagata and B Victoria into their recommendations for flu vaccines. This could indicate that the previous trends for the B viruses, which tended to be higher than the other viruses, were caused by lack of immunity to these strains in the general population. Vaccine formulations could also explain why highly virulent strains, such as the H1N1 2009 pandemic strain, are not stronger predictors as compared to the B viruses in this model. For every year since the 2009 pandemic, H1N1 has been included in vaccine formulations. Additionally, H3N2v has also been included in vaccine formulations. Further studies, with more data for years beyond the introduction of these new Influenza B vaccine strains, could indicate if these vaccines are effective at reducing ILI incidence.
+  For the state effects, southeastern states tend to have a higher base percentage of ILI presentation as compared to other states, while sparsely populated midwestern states tended to have a lower base percentage of ILI presentation. Further research into why this would be the case could provide insight into how to best prevent and treat ILI. Possible avenues of research, as shown in a classmates study on vaccination rates in the US, could be used to investigate the prevalence of flu vaccines in these states. Education on vaccinations, free vaccines for those in poverty, or other methods may be necessary to bring down the ILI rate in these states. Rural communities, with less contact with others, may also help reduce the prevalence of ILI incidence. More research should be carried out to determine the best option to reduce ILI rates.
+
+**Sources**
+
+Data is from CDC Fluview: https://www.cdc.gov/flu/weekly/index.htm
+  https://gis.cdc.gov/grasp/fluview/fluportaldashboard.html
+
+General Information about Influenza:
+https://www.cdc.gov/flu/index.htm
+
+A scientific review covering general influenza:
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5337761/
+
+A review discussing the virulence of Influenza A:
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3969785/
+
+For general influenza knowledge:
+https://en.wikipedia.org/wiki/Influenza
+
+WHO Influenza Vaccine Recommendations, by year: https://www.who.int/influenza/vaccines/virus/recommendations/2018_19_north/en/
+
+
+**Appendix**
+Python Code and Raw R Code found on Github
+Link To Github: https://github.com/RNAPolymerase12/IDS_702_Final_Project_Andrew_Patterson
+```
+library('plyr')
+library('car')
+library('kableExtra')
+library('glmnet')
+library('xtable')
+library('caret')
+library('e1071')
+library('pROC')
+library('arm')
+library('lme4')
+
+```
+
+```
+#import the data
+All_Seasons <- read.csv('Final_Frame_Stat.csv')
+Before_2015 <- read.csv('Up_To_2016_Frame.csv')
+After_2015 <- read.csv('After_2016_Frame.csv')
+print(All_Seasons)
+print(After_2015)
+After_2015$State <- After_2015$REGION
+
+```
+
+```
+#EDA
+hist(All_Seasons$ILI_Percent)
+hist(After_2015$ILI_Percent, main = 'Histogram of Percentage of Patients with an ILI', xlab = 'Percentage of Patients with an ILI')
+?hist
+hist(log(All_Seasons$ILI_Percent))
+plot(ILI_Percent~A_2009_H1N1, data = All_Seasons)
+plot(ILI_Percent~A_2009_H1N1_Percent, data = After_2015)
+plot(ILI_Percent~BYam_Percent, data = After_2015)
+plot(ILI_Percent~A_H3_Percent, data = After_2015)
+plot(ILI_Percent~B_Percent, data = After_2015)
+plot(ILI_Percent~H3N2v_Percent, data = After_2015)
+plot(ILI_Percent~BVic_Percent, data = After_2015)
+
+```
+```
+#Model Formation and Selection
+#Full Model
+
+fullmodel_after_Percents <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + BVic_Percent + H3N2v_Percent + (1 | State), data = After_2015)
+summary(fullmodel_after_Percents)
+
+ranef(fullmodel_after_Percents)
+plot(ranef(fullmodel_after_Percents))
+
+car::vif(fullmodel_after_Percents)
+AIC(fullmodel_after_Percents)
+BIC(fullmodel_after_Percents)
+plot(fullmodel_after_Percents)
+qqnorm(residuals(fullmodel_after_Percents));qqline(residuals(fullmodel_after_Percents))
+
+#Drop B Victoria and H3N2v
+Dropped_Bvic_H3N2v <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + (1 | State), data = After_2015)
+summary(Dropped_Bvic_H3N2v)
+
+ranef(Dropped_Bvic_H3N2v)
+plot(ranef(Dropped_Bvic_H3N2v))
+
+car::vif(Dropped_Bvic_H3N2v)
+AIC(Dropped_Bvic_H3N2v)
+BIC(Dropped_Bvic_H3N2v)
+plot(Dropped_Bvic_H3N2v)
+qqnorm(residuals(Dropped_Bvic_H3N2v));qqline(residuals(Dropped_Bvic_H3N2v))
+
+#All A
+All_A_Percents <- lmer(ILI_Percent~ A_2009_H1N1_Percent + A_H3_Percent + H3N2v_Percent + (1 | State), data = After_2015)
+summary(All_A_Percents)
+
+car::vif(All_A_Percents)
+AIC(All_A_Percents)
+BIC(All_A_Percents)
+
+#All B
+All_B_Percents <- lmer(ILI_Percent~ B_Percent + BYam_Percent  + BVic_Percent + (1 | State), data = After_2015)
+summary(All_B_Percents)
+
+car::vif(All_B_Percents)
+AIC(All_B_Percents)
+BIC(All_B_Percents)
+
+#Interaction Terms
+Interactions_model <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + BVic_Percent + H3N2v_Percent + (1 | State) + B_Percent:BYam_Percent + A_H3_Percent:H3N2v_Percent, data = After_2015)
+summary(Interactions_model)
+
+car::vif(Interactions_model)
+AIC(Interactions_model)
+BIC(Interactions_model)
+
+
+```
+
+
+```
+#Model Validation
+qqmath.ranef.mer()
+dotplot.ranef.mer()
+dotplot(ranef(fullmodel_after_Percents),col.lab = 'red', cex.lab = 0.1)
+?dotplot
+qqnorm(fullmodel_after_Percents)
+xtable(fullmodel_after_Percents)
+summary(fullmodel_after_Percents)
+confint(fullmodel_after_Percents)
+qqnorm(residuals(fullmodel_after_Percents));qqline(residuals(fullmodel_after_Percents))
+
+
+resid_after_2015 <- resid(fullmodel_after_Percents)
+plot(resid_after_2015)
+```
+```
+anova(fullmodel_after_Percents, Dropped_Bvic_H3N2v)
+anova(fullmodel_after_Percents, All_A_Percents)
+anova(fullmodel_after_Percents, All_B_Percents)
+anova(fullmodel_after_Percents, Interactions_model)
+
+```
+

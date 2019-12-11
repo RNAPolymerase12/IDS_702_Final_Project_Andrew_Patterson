@@ -1,0 +1,240 @@
+---
+title: "Stat_Final_Project"
+output: html_document
+---
+
+```{r}
+library('plyr')
+library('car')
+library('kableExtra')
+library('glmnet')
+library('xtable')
+library('caret')
+library('e1071')
+library('pROC')
+library('arm')
+library('lme4')
+
+
+
+```
+
+
+```{r}
+#import the data
+All_Seasons <- read.csv('Final_Frame_Stat.csv')
+Before_2015 <- read.csv('Up_To_2016_Frame.csv')
+After_2015 <- read.csv('After_2016_Frame.csv')
+print(All_Seasons)
+print(After_2015)
+After_2015$State <- After_2015$REGION
+
+```
+
+```{r}
+hist(All_Seasons$ILI_Percent)
+hist(After_2015$ILI_Percent, main = 'Histogram of Percentage of Patients with an ILI', xlab = 'Percentage of Patients with an ILI')
+?hist
+hist(log(All_Seasons$ILI_Percent))
+plot(ILI_Percent~A_2009_H1N1, data = All_Seasons)
+plot(ILI_Percent~A_2009_H1N1_Percent, data = After_2015)
+plot(ILI_Percent~BYam_Percent, data = After_2015)
+plot(ILI_Percent~A_H3_Percent, data = After_2015)
+plot(ILI_Percent~B_Percent, data = After_2015)
+plot(ILI_Percent~H3N2v_Percent, data = After_2015)
+plot(ILI_Percent~BVic_Percent, data = After_2015)
+
+```
+
+
+```{r}
+#make a new dataframe without the NA's
+Dropped_All_Seasons <- All_Seasons
+Dropped_All_Seasons <- subset(All_Seasons, select =  c(REGION,ILI_Percent, A_2009_H1N1, B, H3N2v))
+Dropped_All_Seasons <- drop_na(Dropped_All_Seasons)
+print(Dropped_All_Seasons)
+
+fullmodel_all <- lmer(ILI_Percent~ A_2009_H1N1 + B + H3N2v + (1 | REGION), data = All_Seasons)
+summary(fullmodel_all)
+
+car::vif(fullmodel_all)
+plot
+fullmodel_all_Percents <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + H3N2v_Percent + (1 | REGION), data = All_Seasons)
+summary(fullmodel_all_Percents)
+
+```
+
+
+```{r}
+
+fullmodel_before <- lmer(ILI_Percent~ A_2009_H1N1 + B + H3N2v + A_H1 + (1 | REGION), data = Before_2015)
+summary(fullmodel_before)
+
+fullmodel_before_Percent <- lmer(ILI_Percent~ A_2009_H1N1 + B + H3N2v + A_H1 + (1| REGION), data = Before_2015)
+summary(fullmodel_before_Percent)
+```
+
+
+```{r}
+fullmodel_after <- lmer(ILI_Percent~ A_2009_H1N1 + B + BYam + A_H3 + BVic + H3N2v + (1 | REGION), data = After_2015)
+summary(fullmodel_after)
+
+fullmodel_after_Percents <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + BVic_Percent + H3N2v_Percent + (1 | State), data = After_2015)
+summary(fullmodel_after_Percents)
+
+ranef(fullmodel_after_Percents)
+
+simple_model <- lmer(ILI_Percent~ A_2009_H1N1_Percent + (1 | REGION), data = After_2015)
+
+forward_model <- step(object = fullmodel_after_Percents, direction = 'stepwise', trace = 0, scope = simple_model)
+print(forward_model)
+saved_model_reconstruct <- lmer(ILI_Percent~BYam_Percent + A_H3_Percent + A_2009_H1N1_Percent + B_Percent + (1 | REGION), data = After_2015)
+car::vif(saved_model_reconstruct)
+AIC(saved_model_reconstruct)
+
+full_model_predict <- predict(fullmodel_after_Percents)
+
+plot(full_model_predict)
+
+car::vif(fullmodel_after_Percents)
+AIC(fullmodel_after_Percents)
+BIC(fullmodel_after_Percents)
+plot(fullmodel_after_Percents)
+backlm_after_Percents <- step(fullmodel_after_Percents, direction = 'backward', trace = 0)
+backlm_after_Percents
+resid_after_2015 <- resid(fullmodel_after_Percents)
+plot(resid_after_2015)
+
+plot(ranef(fullmodel_after_Percents))
+
+randoms<-ranef(fullmodel_after_Percents, condVar = TRUE)
+qq <- attr(ranef(fullmodel_after_Percents, condVar = TRUE)[[1]], "postVar")
+
+rand.interc<-randoms$Batch
+df<-data.frame(Intercepts=randoms$Batch[,1],sd.interc=2*sqrt(qq[,,1:length(qq)]),lev.names=rownames(rand.interc))
+
+qqmath.ranef.mer()
+dotplot.ranef.mer()
+dotplot(ranef(fullmodel_after_Percents),col.lab = 'red', cex.lab = 0.1)
+?dotplot
+qqnorm(fullmodel_after_Percents)
+xtable(fullmodel_after_Percents)
+summary(fullmodel_after_Percents)
+confint(fullmodel_after_Percents)
+qqnorm(residuals(fullmodel_after_Percents));qqline(residuals(fullmodel_after_Percents))
+
+resid_after_2015 <- resid(fullmodel_after_Percents)
+plot(resid_after_2015)
+```
+
+$$\begin{aligned}
+ILI_Percent = & (B_0 + \gamma_{State} ) + B_1A\_2009\_H1N1 + B_2A\_H3\_Percent + B_3BYam\_Percent + B_4BVic\_Percent + B_5B_Percent + B_6H3N2v_Percent \\
+\end{aligned}$$
+
+```{r}
+
+log_model <- glmer(cbind(ILITOTAL, TOTAL.PATIENTS)~A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + BVic_Percent + H3N2v_Percent + (1 | REGION), data = After_2015, family = binomial)
+
+summary(log_model)
+
+conffull <-confusionMatrix(as.factor(ifelse(fitted(log_model)>=0.5, '0', '1')), factor(cbind(After_2015$ILITOTAL, After_2015$TOTAL.PATIENTS)), positive = '1')
+conffull$overall['Accuracy']
+
+invisible(roc(smokedata$gestation,fitted(fullmodel),plot=T,print.thres=c(0.3,0.5,0.7),legacy.axes=T, print.auc =T,col="red3"))
+
+ranef(log_model)
+
+dotplot(ranef(log_model))
+
+log_model_2 <- 
+
+car::vif(log_model)
+AIC(log_model)
+BIC(log_model)
+
+back_log_model <- step(object = log_model, direction = 'backwards', trace = 0)
+```
+
+
+```{r}
+#Model Formation and Selection
+#Full Model
+
+fullmodel_after_Percents <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + BVic_Percent + H3N2v_Percent + (1 | State), data = After_2015)
+summary(fullmodel_after_Percents)
+
+ranef(fullmodel_after_Percents)
+plot(ranef(fullmodel_after_Percents))
+
+car::vif(fullmodel_after_Percents)
+AIC(fullmodel_after_Percents)
+BIC(fullmodel_after_Percents)
+plot(fullmodel_after_Percents)
+qqnorm(residuals(fullmodel_after_Percents));qqline(residuals(fullmodel_after_Percents))
+
+#Drop B Victoria and H3N2v
+Dropped_Bvic_H3N2v <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + (1 | State), data = After_2015)
+summary(Dropped_Bvic_H3N2v)
+
+ranef(Dropped_Bvic_H3N2v)
+plot(ranef(Dropped_Bvic_H3N2v))
+
+car::vif(Dropped_Bvic_H3N2v)
+AIC(Dropped_Bvic_H3N2v)
+BIC(Dropped_Bvic_H3N2v)
+plot(Dropped_Bvic_H3N2v)
+qqnorm(residuals(Dropped_Bvic_H3N2v));qqline(residuals(Dropped_Bvic_H3N2v))
+
+#All A
+All_A_Percents <- lmer(ILI_Percent~ A_2009_H1N1_Percent + A_H3_Percent + H3N2v_Percent + (1 | State), data = After_2015)
+summary(All_A_Percents)
+
+car::vif(All_A_Percents)
+AIC(All_A_Percents)
+BIC(All_A_Percents)
+
+#All B
+All_B_Percents <- lmer(ILI_Percent~ B_Percent + BYam_Percent  + BVic_Percent + (1 | State), data = After_2015)
+summary(All_B_Percents)
+
+car::vif(All_B_Percents)
+AIC(All_B_Percents)
+BIC(All_B_Percents)
+
+#Interaction Terms
+Interactions_model <- lmer(ILI_Percent~ A_2009_H1N1_Percent + B_Percent + BYam_Percent + A_H3_Percent + BVic_Percent + H3N2v_Percent + (1 | State) + B_Percent:BYam_Percent + A_H3_Percent:H3N2v_Percent, data = After_2015)
+summary(Interactions_model)
+
+car::vif(Interactions_model)
+AIC(Interactions_model)
+BIC(Interactions_model)
+
+
+```
+
+```{r}
+summary(fullmodel_after_Percents)
+
+confint(fullmodel_after_Percents)
+
+```
+
+```{r}
+anova(fullmodel_after_Percents, Dropped_Bvic_H3N2v)
+anova(fullmodel_after_Percents, All_A_Percents)
+anova(fullmodel_after_Percents, All_B_Percents)
+anova(fullmodel_after_Percents, Interactions_model)
+
+```
+```
+qqmath.ranef.mer()
+dotplot.ranef.mer()
+dotplot(ranef(fullmodel_after_Percents),col.lab = 'red', cex.lab = 0.1)
+?dotplot
+qqnorm(fullmodel_after_Percents)
+xtable(fullmodel_after_Percents)
+summary(fullmodel_after_Percents)
+confint(fullmodel_after_Percents)
+qqnorm(residuals(fullmodel_after_Percents));qqline(residuals(fullmodel_after_Percents))
+```
+
